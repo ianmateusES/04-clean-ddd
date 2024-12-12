@@ -2,13 +2,21 @@ import { DeleteAnswerUseCase } from './delete-answer'
 import { InMemoryAnswersRepository } from 'test/repositories/in-memory-answers-repository'
 import { makeAnswer } from 'test/factories/make-answer'
 import { UniqueEntityID } from '@/core/entities/unique-entity-id'
+import { NotAllowedError } from '@/core/errors/errors'
+import { InMemoryAnswerAttachmentsRepository } from 'test/repositories/in-memory-answer-attachments-repository'
+import { makeAnswerAttachment } from 'test/factories/make-answer-attachments'
 
+let inMemoryAnswerAttachmentsRepository: InMemoryAnswerAttachmentsRepository
 let inMemoryAnswersRepository: InMemoryAnswersRepository
 let deleteAnswerUseCase: DeleteAnswerUseCase
 
 describe('Delete Answer', () => {
   beforeEach(() => {
-    inMemoryAnswersRepository = new InMemoryAnswersRepository()
+    inMemoryAnswerAttachmentsRepository =
+      new InMemoryAnswerAttachmentsRepository()
+    inMemoryAnswersRepository = new InMemoryAnswersRepository(
+      inMemoryAnswerAttachmentsRepository,
+    )
     deleteAnswerUseCase = new DeleteAnswerUseCase(inMemoryAnswersRepository)
   })
 
@@ -22,6 +30,14 @@ describe('Delete Answer', () => {
       new UniqueEntityID(answerId),
     )
     await inMemoryAnswersRepository.create(newAnswer)
+    for (let i = 1; i < 3; i++) {
+      inMemoryAnswerAttachmentsRepository.items.push(
+        makeAnswerAttachment({
+          answerId: newAnswer.id,
+          attachmentId: new UniqueEntityID(i.toString()),
+        }),
+      )
+    }
 
     await deleteAnswerUseCase.execute({
       answerId,
@@ -29,6 +45,7 @@ describe('Delete Answer', () => {
     })
 
     expect(inMemoryAnswersRepository.items).toHaveLength(0)
+    expect(inMemoryAnswerAttachmentsRepository.items).toHaveLength(0)
   })
 
   it('should not be able to delete a answer from another user', async () => {
@@ -41,11 +58,12 @@ describe('Delete Answer', () => {
     )
     await inMemoryAnswersRepository.create(newAnswer)
 
-    expect(() => {
-      return deleteAnswerUseCase.execute({
-        answerId,
-        authorId: 'author-2',
-      })
-    }).rejects.toBeInstanceOf(Error)
+    const result = await deleteAnswerUseCase.execute({
+      answerId,
+      authorId: 'author-2',
+    })
+
+    expect(result.isLeft()).toBe(true)
+    expect(result.value).toBeInstanceOf(NotAllowedError)
   })
 })
